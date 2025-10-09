@@ -30,6 +30,8 @@ from torch.distributed.fsdp import FullyShardedDataParallel as FSDP
 from torch.distributed.fsdp._runtime_utils import _lazy_init
 from torch.distributed.fsdp.wrap import size_based_auto_wrap_policy, transformer_auto_wrap_policy
 from transformers.trainer_pt_utils import get_module_class_from_name
+import pdb
+
 
 if version.parse(torch.__version__) >= version.parse("2.6"):
     from torch.distributed.fsdp import CPUOffloadPolicy, FSDPModule, MixedPrecisionPolicy, fully_shard
@@ -98,7 +100,6 @@ def get_fsdp_wrap_policy(module, config=None, is_lora=False):
     fsdp_transformer_layer_cls_to_wrap = _get_attr("transformer_layer_cls_to_wrap", default_transformer_cls_names_to_wrap)
     min_num_params = _get_attr("min_num_params", 0)
     auto_wrap_policy = None
-
     policies = []
 
     from torch.distributed.fsdp.wrap import _or_policy, lambda_auto_wrap_policy
