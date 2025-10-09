@@ -25,7 +25,7 @@ When working with Megatron:
 - Do inference in tp. pp is treated as additional dp
 - After inference, all the parameters that doesn't belong to this pp rank is freed.
 """
-
+import pdb
 import logging
 import os
 from contextlib import contextmanager
@@ -45,7 +45,7 @@ from verl.third_party.vllm import vllm_version
 from verl.utils.debug import GPUMemoryLogger
 from verl.utils.torch_functional import get_response_mask, pad_2d_list_to_length
 from verl.workers.rollout.base import BaseRollout
-
+import pdb
 logger = logging.getLogger(__file__)
 logger.setLevel(os.getenv("VERL_LOGGING_LEVEL", "WARN"))
 
@@ -180,6 +180,8 @@ class vLLMRollout(BaseRollout):
         self.sampling_params = SamplingParams(**kwargs)
 
         self.pad_token_id = tokenizer.pad_token_id
+        self.forbiden_id_img = tokenizer.context_image_token_id
+        self.space_id = tokenizer.encode(" ", add_special_tokens=False)[0]
 
     @contextmanager
     def update_sampling_params(self, **kwargs):
@@ -280,6 +282,11 @@ class vLLMRollout(BaseRollout):
                     response.append(output.outputs[sample_id].token_ids)
 
             response = pad_2d_list_to_length(response, self.pad_token_id, max_length=self.config.response_length).to(idx.device)
+            if (response == self.forbiden_id_img).any():
+                print(str(self.forbiden_id_img)+" 存在于张量中。")
+
+                response[response == self.forbiden_id_img] = self.space_id
+
 
             if self.sampling_params.n > 1 and do_sample:
                 idx = _repeat_interleave(idx, self.sampling_params.n)
@@ -310,6 +317,7 @@ class vLLMRollout(BaseRollout):
         attention_mask = torch.cat((attention_mask, response_attention_mask), dim=-1)
 
         # all the tp ranks should contain the same data here. data in all ranks are valid
+        
         batch = TensorDict(
             {
                 "prompts": idx,
@@ -321,6 +329,8 @@ class vLLMRollout(BaseRollout):
             },
             batch_size=batch_size,
         )
+        #print(response)
+        #pdb.set_trace()
 
         # free vllm cache engine
         if (
