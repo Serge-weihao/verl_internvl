@@ -24,7 +24,7 @@ from pprint import pprint
 import numpy as np
 import torch
 from tqdm import tqdm
-
+from verl.trainer.ppo.core_algos import agg_loss
 from verl import DataProto
 from verl.trainer.ppo.metric_utils import (
     compute_data_metrics,
@@ -34,7 +34,11 @@ from verl.trainer.ppo.metric_utils import (
 )
 from verl.trainer.ppo.ray_trainer import AdvantageEstimator, RayPPOTrainer, _timer, apply_kl_penalty, compute_advantage
 
-
+def compute_response_mask(data: DataProto):
+    responses = data.batch["responses"]
+    response_length = responses.size(1)
+    attention_mask = data.batch["attention_mask"]
+    return attention_mask[:, -response_length:]
 class RayDAPOTrainer(RayPPOTrainer):
     """
     Note that this trainer runs on the driver process on a single CPU/GPU node.
@@ -141,14 +145,14 @@ class RayDAPOTrainer(RayPPOTrainer):
 
                         # we combine with rule-based rm
                         reward_extra_infos_dict: dict[str, list]
-                        try:
-                            reward_result = self.reward_fn(new_batch, return_dict=True)
-                            reward_tensor = reward_result["reward_tensor"]
-                            reward_extra_infos_dict = reward_result["reward_extra_info"]
-                        except Exception as e:
-                            print(f"Error in reward_fn: {e}")
-                            reward_tensor = self.reward_fn(new_batch)
-                            reward_extra_infos_dict = {}
+                        #try:
+                        reward_result = self.reward_fn(new_batch, return_dict=True)
+                        reward_tensor = reward_result["reward_tensor"]
+                        reward_extra_infos_dict = reward_result["reward_extra_info"]
+                        # except Exception as e:
+                        #     print(f"Error in reward_fn: {e}")
+                        #     reward_tensor = self.reward_fn(new_batch)
+                        #     reward_extra_infos_dict = {}
 
                         new_batch.batch["token_level_scores"] = reward_tensor
 
@@ -207,7 +211,8 @@ class RayDAPOTrainer(RayPPOTrainer):
                             # Align the batch
                             traj_bsz = self.config.data.train_batch_size * self.config.actor_rollout_ref.rollout.n
                             batch = batch[:traj_bsz]
-
+                    # jwh
+                    batch.batch["response_mask"] = compute_response_mask(batch)
                     # balance the number of valid tokens on each dp rank.
                     # Note that this breaks the order of data inside the batch.
                     # Please take care when you implement group based adv computation such as GRPO and rloo
@@ -218,10 +223,19 @@ class RayDAPOTrainer(RayPPOTrainer):
                     batch.meta_info["global_token_num"] = torch.sum(batch.batch["attention_mask"], dim=-1).tolist()
 
                     # recompute old_log_probs
+                    # with _timer("old_log_prob", timing_raw):
+                    #     old_log_prob = self.actor_rollout_wg.compute_log_prob(batch)
+                    #     batch = batch.union(old_log_prob)
                     with _timer("old_log_prob", timing_raw):
                         old_log_prob = self.actor_rollout_wg.compute_log_prob(batch)
+                        entropys = old_log_prob.batch["entropys"]
+                        response_masks = batch.batch["response_mask"]
+                        loss_agg_mode = self.config.actor_rollout_ref.actor.loss_agg_mode
+                        entropy_loss = agg_loss(loss_mat=entropys, loss_mask=response_masks, loss_agg_mode=loss_agg_mode)
+                        old_log_prob_metrics = {"actor/entropy_loss": entropy_loss.detach().item()}
+                        metrics.update(old_log_prob_metrics)
+                        old_log_prob.batch.pop("entropys")
                         batch = batch.union(old_log_prob)
-
                     if self.use_reference_policy:
                         # compute reference log_prob
                         with _timer("ref", timing_raw):
@@ -260,6 +274,23 @@ class RayDAPOTrainer(RayPPOTrainer):
                             actor_output = self.actor_rollout_wg.update_actor(batch)
                         actor_output_metrics = reduce_metrics(actor_output.meta_info["metrics"])
                         metrics.update(actor_output_metrics)
+                    
+                    ##jwh
+                    # Log rollout generations if enabled
+                    rollout_data_dir = self.config.trainer.get("rollout_data_dir", None)
+                    if rollout_data_dir:
+                        with _timer("dump_rollout_generations", timing_raw):
+                            print(batch.batch.keys())
+                            inputs = self.tokenizer.batch_decode(batch.batch["prompts"], skip_special_tokens=True)
+                            outputs = self.tokenizer.batch_decode(batch.batch["responses"], skip_special_tokens=True)
+                            scores = batch.batch["token_level_scores"].sum(-1).cpu().tolist()
+                            self._dump_generations(
+                                inputs=inputs,
+                                outputs=outputs,
+                                scores=scores,
+                                reward_extra_infos_dict=reward_extra_infos_dict,
+                                dump_path=rollout_data_dir,
+                            )
 
                     # validate
                     if self.val_reward_fn is not None and self.config.trainer.test_freq > 0 and (is_last_step or self.global_steps % self.config.trainer.test_freq == 0):
