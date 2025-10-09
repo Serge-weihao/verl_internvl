@@ -60,6 +60,15 @@ class InternVLPreprocessor(BasicPreprocessor):
         super().__init__(processor, image_key=image_key, video_key=video_key)
 
     def process_image(self, image, **kwargs):
+        """if not isinstance(image, Image.Image):
+            print(image)"""
+        if isinstance(image, dict) and 'bytes' in image:
+            byte_data = image['bytes']
+            with BytesIO(byte_data) as bio:
+                image_obj = copy.deepcopy(Image.open(bio))
+            return  image_obj.convert("RGB")
+
+            
         if isinstance(image, Image.Image):
             image_obj = image
         elif image.startswith("http://") or image.startswith("https://"):
@@ -143,4 +152,37 @@ class InternVLPreprocessor(BasicPreprocessor):
         # image_flags = torch.tensor([1] * num_patches, dtype=torch.long)
         # row_dict["multi_modal_data"]["image_flags"] = image_flags
         # row_dict["image_flags"] = image_flags
+        return row_dict, model_inputs, input_ids, attention_mask, raw_prompt
+    def __call__(self, messages, row_dict):
+        raw_prompt = self.processor.apply_chat_template(messages, add_generation_prompt=True, tokenize=False)
+        #print(raw_prompt)
+        multi_modal_data = {}
+
+        images = None
+        if self.image_key in row_dict and row_dict[self.image_key] is not None:
+            images = [self.process_image(image) for image in row_dict.pop(self.image_key)]
+            multi_modal_data["image"] = images
+
+        videos = None
+        if self.video_key in row_dict:
+            videos = [self.process_video(video) for video in row_dict.pop(self.video_key)]
+            multi_modal_data["video"] = [video.numpy() for video in videos]
+        raw_prompt_convert = raw_prompt
+        if "<image>" in raw_prompt_convert:
+            #In older version the fake_image_token will be used
+            raw_prompt_convert=raw_prompt_convert.replace("<image>", "<IMG_CONTEXT>")
+        #breakpoint()   
+        model_inputs = self.processor(text=[raw_prompt_convert], images=images if len(images)>0 else None, videos=videos, return_tensors="pt")
+        input_ids = model_inputs.pop("input_ids")
+        attention_mask = model_inputs.pop("attention_mask")
+
+        if "second_per_grid_ts" in model_inputs:
+            model_inputs.pop("second_per_grid_ts")
+
+        # There's a trap here, multi_modal_inputs has to be a dict, not BatchFeature
+        row_dict["multi_modal_data"] = multi_modal_data
+        row_dict["multi_modal_inputs"] = dict(model_inputs)
+
+        # second_per_grid_ts isn't used for training, just for mrope
+        row_dict["multi_modal_inputs"].pop("second_per_grid_ts", None)
         return row_dict, model_inputs, input_ids, attention_mask, raw_prompt
