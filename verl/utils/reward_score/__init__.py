@@ -19,10 +19,12 @@ def _default_compute_score(data_source, solution_str, ground_truth, extra_info=N
         from . import gsm8k
 
         res = gsm8k.compute_score(solution_str, ground_truth)
-    elif data_source in ["lighteval/MATH", "DigitalLearningGmbH/MATH-lighteval"]:
+    #elif data_source in ["lighteval/MATH", "DigitalLearningGmbH/MATH-lighteval"]:
+    elif data_source in ['lighteval/MATH', 'DigitalLearningGmbH/MATH-lighteval', 'aime24', 'aime25', 'math500']:
         from . import math
-
         res = math.compute_score(solution_str, ground_truth)
+        #from . import mathv3
+        #res = mathv3.compute_score(solution_str, ground_truth)
         # [Optional] Math-Verify Integration
         # For enhanced accuracy, consider utilizing Math-Verify (https://github.com/huggingface/Math-Verify).
         # Note: Math-Verify needs to be manually installed via pip: `pip install math-verify`.
@@ -58,9 +60,8 @@ def _default_compute_score(data_source, solution_str, ground_truth, extra_info=N
 
             # Assuming prime_code doesn't need the URL
             res = prime_code.compute_score(solution_str, ground_truth, continuous=True)
-    elif data_source in ["hiyouga/geometry3k"]:
+    elif data_source in ["hiyouga/geometry3k","leonardPKU/GEOQA_R1V_Train_8K","ChartQAPro","chartx","tablevqa","chart_virl","counting_clevr-1725","mmmath","puzzle_puzzlevqa","scienceqa","science_virl","ocr_estvqa","mmk12","llavaov", 'math_miromind',"FanqingM/MMK12"]:
         from . import geo3k
-
         res = geo3k.compute_score(solution_str, ground_truth)
     else:
         raise NotImplementedError(f"Reward function is not implemented for {data_source=}")
