@@ -19,7 +19,9 @@ import argparse
 import os
 
 import datasets
-
+import sys
+from PIL import Image
+sys.path.append("")
 from verl.utils.hdfs_io import copy, makedirs
 
 if __name__ == "__main__":
@@ -48,7 +50,10 @@ if __name__ == "__main__":
             prompt = problem + " " + instruction_following
             answer = example.pop("answer")
             images = example.pop("images")
-
+            if images[0].mode!="RGBA": print(images)
+            print(type(images))
+            if not isinstance(images[0], Image.Image):
+                  print(images)
             data = {
                 "data_source": data_source,
                 "prompt": [
