@@ -57,6 +57,7 @@ def hf_tokenizer(name_or_path, correct_pad_token=True, correct_gemma2=True, **kw
         kwargs["eos_token"] = "<end_of_turn>"
         kwargs["eos_token_id"] = 107
     trust_remote_code=kwargs.pop("trust_remote_code", False)
+    kwargs['trust_remote_code']=True
     tokenizer = AutoTokenizer.from_pretrained(name_or_path, **kwargs)
     config = AutoConfig.from_pretrained(name_or_path, trust_remote_code=trust_remote_code)
     if re.match("internvl", config.model_type):
@@ -66,10 +67,10 @@ def hf_tokenizer(name_or_path, correct_pad_token=True, correct_gemma2=True, **kw
         tokenizer.video_token = "<video>"
         tokenizer.context_image_token_id = tokenizer.convert_tokens_to_ids(tokenizer.context_image_token) #for transformers >= 4.52.2
         print("tokenizer.context_image_token_id:", tokenizer.context_image_token_id)
-        tokenizer.chat_template="""{% for message in messages %}{{'<|im_start|>' + message['role'] + ''}}{% if message['content'] is string %}{{ message['content'] }}{% else %}{% for content in message['content'] %}{% if content['type'] == 'image' %}{{ '<image>' }}{% elif content['type'] == 'video' %}{{ '<video>' }}{% elif content['type'] == 'text' %}{{ content['text'] }}{% endif %}{% endfor %}{% endif %}{{'<|im_end|>'}}{% endfor %}{% if add_generation_prompt %}{{'<|im_start|>assistant' }}{% endif %}"""
-    if correct_pad_token:
-        set_pad_token_id(tokenizer)
-    return tokenizer
+        if 'xx' not in tokenizer.chat_template:
+            tokenizer.chat_template="""{% for message in messages %}{{'<|im_start|>' + message['role'] + ''}}{% if message['content'] is string %}{{ message['content'] }}{% else %}{% for content in message['content'] %}{% if content['type'] == 'image' %}{{ '<image>' }}{% elif content['type'] == 'video' %}{{ '<video>' }}{% elif content['type'] == 'text' %}{{ content['text'] }}{% endif %}{% endfor %}{% endif %}{{'<|im_end|>'}}{% endfor %}{% if add_generation_prompt %}{{'<|im_start|>assistant' }}{% endif %}"""
+        else:
+            pass
 
 
 def hf_processor(name_or_path, **kwargs):
