@@ -30,7 +30,7 @@ from transformers import PreTrainedTokenizer, ProcessorMixin
 
 import verl.utils.torch_functional as verl_F
 from verl.utils.model import compute_position_id_with_mask
-
+import pdb
 logger = logging.getLogger(__name__)
 
 
@@ -178,12 +178,14 @@ class RLHFDataset(Dataset):
         model_inputs = {}
         if self.processor is not None:
             row_dict, model_inputs, input_ids, attention_mask, raw_prompt = self.preprocessor(messages, row_dict)
+            #pdb.set_trace()
         else:
             raw_prompt = self.tokenizer.apply_chat_template(messages, add_generation_prompt=True, tokenize=False)
             model_inputs = self.tokenizer(raw_prompt, return_tensors="pt", add_special_tokens=False)
             input_ids = model_inputs.pop("input_ids")
             attention_mask = model_inputs.pop("attention_mask")
-
+        if raw_prompt.startswith("<Human>:"):
+            raw_prompt = "<s>"+raw_prompt
         input_ids, attention_mask = verl_F.postprocess_data(
             input_ids=input_ids,
             attention_mask=attention_mask,
